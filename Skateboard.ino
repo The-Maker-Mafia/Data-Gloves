@@ -18,9 +18,10 @@ float bendResistanceCalibrations[num_flexpins][numCalibrationPoints];
 float straightResistances[] = {627, 559, 582, 523, 572};
 float bendResistances[] = {585, 510, 555, 500, 500};
 
-bool calibrated = false;
+bool hasCalibrated = false;
 bool calibrating = false;
 bool shouldCalibrate = true;
+bool allowCommands = false;
 
 void flash_led(int num_times, float interval) {
   int i = 0;
@@ -102,19 +103,31 @@ void setup() {
   digitalWrite(LED_PIN, LOW);
   pinMode(PWM, OUTPUT);
   Serial.println("Setup complete");
-  //  pinMode(OUTPUT_PIN, OUTPUT); // use later
 }
 
 void loop() {
   
   int button = digitalRead(BUTTON_PIN);
-  if (button == 0 && calibrating == false && shouldCalibrate) {
+  if (button == 0 && calibrating == false && shouldCalibrate && hasCalibrated == false) {
     Serial.println("Button 0, calibrating false");
     calibrating == true;
     calibrate();
+  } else if(button == 0 && hasCalibrated == true){
+    while(button == 0){
+      delay(100);
+      button = digitalRead(BUTTON_PIN);
+    }
+    if(allowCommands){
+      allowCommands = false;
+      digitalWrite(LED_PIN, LOW);  
+    }
+    else {
+      allowCommands = true;
+      digitalWrite(LED_PIN, HIGH);  
+    }
   }
 
-  if (calibrated == true || !shouldCalibrate) {
+  if ((hasCalibrated == true || !shouldCalibrate) && allowCommands) {
     float angles[5];
     for (int finger = 0; finger < num_flexpins; finger++) {
       float flexR = read_resistance(FLEXPINS[finger]);
@@ -123,10 +136,21 @@ void loop() {
       angles[finger] = angle;
       //Serial.println("Finger: " + String(finger + 1) + "| Flex Resistance: " + String(flexR) +  "| Bend: " + String(angle) + " degrees");
     }
-    const int command = getCommand(angles[0], angles[1], angles[2], angles[3], angles[4]);
-    runCommand(command);
-  }
 
+    // CONTROL SYSTEM
+    // uncomment below line and comment the lines below IF you want it to be finger 1, 2, 3, 4 VS full hand
+    // const int command = getCommand(angles[0], angles[1], angles[2], angles[3], angles[4]);
+    // runCommand(command);
+    const float avgGloveAngle = (angles[1] + angles[2] + angles[3] + angles[4])/4;
+    if(avgGloveAngle < 30){
+      analogWrite(PWM, 0);
+      Serial.println("0");
+    }
+    else{
+      analogWrite(PWM, map(avgGloveAngle, 0, 90, 120, 135));
+      Serial.println(map(avgGloveAngle, 0, 90, 120, 135));
+    }
+  }
 }
 
 float read_resistance(int pin_to_read) {
@@ -156,9 +180,6 @@ void calibrate() {
   for (int calibration_point = 0; calibration_point < numCalibrationPoints; calibration_point++) {
     for (int finger = 0; finger < num_flexpins; finger++) {
       float resistance = read_resistance(FLEXPINS[finger]);
-      if(finger == 0){
-        Serial.println(resistance);
-      }
       straightResistanceCalibrations[finger][calibration_point] = resistance;
     }
     delay(500);
@@ -193,6 +214,6 @@ void calibrate() {
   Serial.println("Calibration complete.");
   flash_led(5, 500);
   
-  calibrated = true;
+  hasCalibrated = true;
   calibrating = false;
 }
